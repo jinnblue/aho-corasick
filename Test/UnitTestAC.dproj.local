@@ -1,0 +1,11 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<BorlandProject>
+	<Transactions>
+    <Transaction>2016/07/28 17:12:59.000.197,=E:\Project\Delphi\AhoCorasick\Src\AhoCorasick.Interval.pas</Transaction>
+    <Transaction>2016/07/28 17:12:59.000.079,=E:\Project\Delphi\AhoCorasick\Test\TestAhoCorasick.pas</Transaction>
+    <Transaction>2016/08/01 11:03:54.000.487,=E:\Project\Delphi\AhoCorasick\Src\AhoCorasick.Trie.pas</Transaction>
+    <Transaction>2016/08/03 10:05:10.443,=E:\Project\Delphi\AhoCorasick\Test\Unit1.pas</Transaction>
+    <Transaction>2016/08/03 10:05:49.148,E:\Project\Delphi\AhoCorasick\Src\AhoCorasick.DoubleArray.pas=E:\Project\Delphi\AhoCorasick\Test\Unit1.pas</Transaction>
+    <Transaction>2016/08/03 10:11:17.435,E:\Project\Delphi\AhoCorasick\Src\AhoCorasick.DoubleArrayTrie.pas=E:\Project\Delphi\AhoCorasick\Src\AhoCorasick.DoubleArray.pas</Transaction>
+  </Transactions>
+</BorlandProject>
