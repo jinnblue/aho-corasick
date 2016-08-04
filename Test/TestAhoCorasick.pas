@@ -90,6 +90,10 @@ implementation
 uses
   System.SysUtils, System.Diagnostics;
 
+const
+  RES      = '..\..\Resource\dictionary.txt';
+  PRESSURE = 100000;
+
 procedure TestTInterval.SetUp;
 begin
   FInterval := TInterval.Create(1, 3);
@@ -193,14 +197,12 @@ var
 begin
   LE1 := TEmit.Create(13, 42, 'a');
   LE2 := TEmit.Create(13, 42, '');
-  CheckTrue(LE1.Equal(LE2), '期望值为True');
   CheckTrue(LE1.Equals(LE2), '期望值为True');
   LE1.Free;
   LE2.Free;
 
   LE1 := TEmit.Create(13, 42, 'a');
   LE2 := TEmit.Create(13, 43, 'a');
-  CheckFalse(LE1.Equal(LE2), '期望值为False');
   CheckFalse(LE1.Equals(LE2), '期望值为False');
   LE1.Free;
   LE2.Free;
@@ -298,9 +300,6 @@ begin
 end;
 
 procedure TestTTrie.PressTestParse;
-const
-  RES      = '..\..\Resource\dictionary.txt';
-  PRESSURE = 100000;
 var
   LKeys, LText: string;
   LWatch: TStopwatch;
@@ -312,7 +311,7 @@ begin
   LWatch := TStopwatch.StartNew;
   FTrie.AddKeyword('啊哈');
   FTrie.Init(RES);
-  Status(Format('添加: 关键词条数 %d, 耗时 %d ms', [120000, LWatch.ElapsedMilliseconds]));
+  Status(Format('添加: 关键词条数 %d, 耗时 %d ms', [127142, LWatch.ElapsedMilliseconds]));
 
   LText := '一词T%^he 两!@#$#%%^^*词qu %^ick 啊哈哈!@#$#三词br%^　own 第!@#$#四次fox' +
     '五jum!@#$#ps词 六ov!@#$#er词 7词th!@#$#e 8词la!@#$#zy 9词do!@#$#g';
@@ -467,9 +466,6 @@ begin
 end;
 
 procedure TestTDoubleArrayTrie.PressTest;
-const
-  RES      = '..\..\Resource\dictionary_Small.txt';
-  PRESSURE = 100000;
 var
   LKeys, LText: string;
   LWatch: TStopwatch;
@@ -478,6 +474,7 @@ var
 begin
   LWatch := TStopwatch.StartNew;
   FDoubleArrayTrie.Init(RES);
+  Status(Format('添加: 关键词条数 %d, 耗时 %d ms', [127142, LWatch.ElapsedMilliseconds]));
 
   LText := '一词T%^he 两!@#$#%%^^*词qu %^ick 啊哈哈!@#$#三词br%^　own 第!@#$#四次fox' +
     '五jum!@#$#ps词 六ov!@#$#er词 7词th!@#$#e 8词la!@#$#zy 9词do!@#$#g';

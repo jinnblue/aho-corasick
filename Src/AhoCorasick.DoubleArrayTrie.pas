@@ -23,21 +23,22 @@ type
   private type
     TDAState = Integer;
   private const
-    ROOT = 0;
+    ROOT = 1;
     INVALID_MAP = 0;
   private
     FTrie: TTrie;
     FBase: TArray<Integer>;
     FCheck: TArray<Integer>;
     FFail: TArray<Integer>;
+    FUsed: TArray<Boolean>;
     FSize: Integer;
     FInited: Boolean;
     FFileName: string;
     FCaseInsensitive: Boolean;  //是否忽略大小写
 
     procedure ReSize(const aSize: Integer);
-    function MapWords: Integer;
-    procedure CalcArrayValue(const aBaseStart: Integer);
+    procedure MapWords;
+    procedure CalcArrayValue;
     function NextState(aCurrent: TDAState; const ACode: Word): TDAState;
     function GotoNext(aCurrent: TDAState; const AKey: Word): TDAState;
   public
@@ -59,7 +60,7 @@ uses
 
 var
   U_MAP: array[Word] of Word;
-  U_Compare: IComparer<PSuccessNode>;
+  U_CompareCode: IComparer<PSuccessNode>;
 
 function SuccessNodeCompareMapCode(const ALeft, ARight: PSuccessNode): Integer;
 begin
@@ -85,61 +86,54 @@ begin
   SetLength(FBase, aSize);
   SetLength(FCheck, aSize);
   SetLength(FFail, aSize);
+  SetLength(FUsed, aSize);
   FSize := aSize;
 end;
 
-function TDoubleArrayTrie.MapWords: Integer;
+procedure TDoubleArrayTrie.MapWords;
 var
-  I: Integer;
-  LCode: Word;
   LQueue: TQueue<TState>;
+  LCode: Word;
   LP: PSuccessNode;
-  LCurr, LNext: TState;
+  LCurr_S: TState;
 begin
-  for I := Low(U_MAP) to High(U_MAP) do
-  begin
-    U_MAP[I] := INVALID_MAP;
-  end;
-  
-  FSize := 2;
-  LCode := INVALID_MAP;   //字符起始编码
-
   LQueue := TQueue<TState>.Create;
   try
+    FSize := 2;  //下标:0无负数无法检查,不使用; 1为ROOT节点
+    LCode := INVALID_MAP;   //字符起始编码
+    
     for LP in FTrie.RootState.Success do
     begin
       LQueue.Enqueue(LP.State);
 
       if U_MAP[Word(LP.Key)] = INVALID_MAP then
       begin
+        Inc(FSize);  //获取深度=1的宽度
         Inc(LCode);
         U_MAP[Word(LP.Key)] := LCode;
-        //获取深度=1的宽度
-        Inc(FSize);
       end;
     end;      
-    Result := FSize;
 
-    //编码深度>1的节点
+    {编码深度>1的节点}
     while LQueue.Count > 0 do
     begin
-      LCurr := LQueue.Dequeue;
-      for LP in LCurr.Success do
+      LCurr_S := LQueue.Dequeue;
+      for LP in LCurr_S.Success do
       begin
-        LNext := LP.State;
-        LQueue.Enqueue(LNext);
+        LQueue.Enqueue(LP.State);
 
+        Inc(FSize);
         if U_MAP[Word(LP.Key)] = INVALID_MAP then
         begin
           Inc(LCode);
           U_MAP[Word(LP.Key)] := LCode;
         end;
-        Inc(FSize);
       end;
     end;
 
-    ReSize(FSize);
+    ReSize(FSize);  //分配内存
 
+    {初始化ROOT节点内容}
     FBase[ROOT] := 1;
     FCheck[ROOT] := ROOT;
     FFail[ROOT] := ROOT;
@@ -149,18 +143,18 @@ begin
   end;
 end;
 
-procedure TDoubleArrayTrie.CalcArrayValue(const aBaseStart: Integer);
+procedure TDoubleArrayTrie.CalcArrayValue;
 var
   LQueue: TQueue<TState>;
   LP: PSuccessNode;
   LCurr, LNext: TDAState;
   LCurr_S, LNext_S: TState;
-  LIdx, LBase, LOK: Integer;
+  LStart, LIdx, LBase: Integer;
 begin
   LQueue := TQueue<TState>.Create;
   try
-{计算FCheck数组的值}  
-    //深度=1的节点
+    LStart := 2;
+    {计算深度=1节点的Check,Fail值}
     for LP in FTrie.RootState.Success do
     begin
       LCurr_S := LP.State;
@@ -173,9 +167,10 @@ begin
         FCheck[LCurr] := ROOT;
       FFail[LCurr] := ROOT;
       LCurr_S.Idx := LCurr;
+      Inc(LStart);  //起始点跳过深度<=1的节点
     end;
 
-    //深度>1的节点
+    {深度>1的节点}
     while LQueue.Count > 0 do
     begin 
       LCurr_S := LQueue.Dequeue;
@@ -183,29 +178,33 @@ begin
       if Length(LCurr_S.Success) = 0 then
         Continue;
 
-      TArray.Sort<PSuccessNode>(LCurr_S.Success, U_Compare);
+      LCurr_S.QuickSort(U_CompareCode);
+      {计算父节点Base值}
       if FBase[LCurr] = 0 then
       begin
-        LIdx := aBaseStart;
-        repeat      
-          LOK := 0;
+        while FUsed[LStart] do
+          Inc(LStart);
+
+        LIdx := LStart;
+        LNext := LStart;
+        repeat
           LBase := LIdx - U_MAP[Word(LCurr_S.Success[0].Key)];
           for LP in LCurr_S.Success do
           begin
             LNext := LBase + U_MAP[Word(LP.Key)];
             if LNext >= FSize then
               ReSize(LNext + 1);
-            LOK := LOK or FCheck[LNext] or FBase[LNext];
-            if LOK <> 0 then
+            if FUsed[LNext] then
               Break;
           end;
 
           Inc(LIdx);
-        until (LOK = 0);
+        until not FUsed[LNext];
 
         FBase[LCurr] := LBase;
       end;
-      
+
+      {计算子节点Check值}
       for LP in LCurr_S.Success do
       begin
         LNext_S := LP.State;
@@ -216,16 +215,16 @@ begin
           FCheck[LNext] := -LCurr
         else
           FCheck[LNext] := LCurr;
+        FUsed[LNext] := True;
         LNext_S.Idx := LNext;
       end;
     end;
 
-{计算FFail数组的值}
+   {计算FFail数组的值}
     for LP in FTrie.RootState.Success do
     begin
       LQueue.Enqueue(LP.State);
     end;
-
     while LQueue.Count > 0 do
     begin 
       LCurr_S := LQueue.Dequeue;
@@ -234,11 +233,11 @@ begin
         LNext_S := LP.State;
         LQueue.Enqueue(LNext_S);
         
-        LNext := LNext_S.Idx;
-        FFail[LNext] := LNext_S.Failure.Idx;
+        FFail[LNext_S.Idx] := LNext_S.Failure.Idx;
       end;
     end;
 
+    SetLength(FUsed, 0);
     FInited := True;
   finally
     LQueue.Free;
@@ -251,16 +250,14 @@ begin
 end;
 
 function TDoubleArrayTrie.Init(const aFileName: string): Boolean;
-var
-  LStart: Integer;
 begin
   FFileName := aFileName;
   FTrie := TTrie.Create;
   try
     if FTrie.Init(FFileName) then
     begin
-      LStart := MapWords;
-      CalcArrayValue(LStart);
+      MapWords;
+      CalcArrayValue;
     end;
     Result := FInited;
   finally
@@ -343,12 +340,11 @@ begin
   for I := 1 to Length(aText) do
   begin
     LChar := aText[I];
-    if LChar.IsPunctuation then
+    if not LChar.IsLetterOrDigit then
       Continue;
 
     if FCaseInsensitive then
       LChar := LChar.ToUpper;
-
     LCurr := GotoNext(LCurr, Word(LChar));
     if FCheck[LCurr] < 0 then
     begin
@@ -359,6 +355,9 @@ end;
 
 
 initialization
-  U_Compare := TComparer<PSuccessNode>.Construct(SuccessNodeCompareMapCode);
+  U_CompareCode := TComparer<PSuccessNode>.Construct(SuccessNodeCompareMapCode);
+
+finalization
+  U_CompareCode := nil;
 
 end.

@@ -21,7 +21,6 @@ type
   public
     constructor Create(const AStart, AEnd: Integer);
 
-    function Equal(const AOther: TInterval): Boolean;
     function Equals(AOther: TObject): Boolean; override;
     function Size: Integer;
     function ToString: string; override;
@@ -111,16 +110,14 @@ implementation
 uses
   System.SysUtils, System.Generics.Defaults;
 
+var
+  U_CompareSize, U_ComparePos: IComparer<TInterval>;
+
 { TInterval }
 constructor TInterval.Create(const AStart, AEnd: Integer);
 begin
   FStart := AStart;
   FEnd := AEnd;
-end;
-
-function TInterval.Equal(const AOther: TInterval): Boolean;
-begin
-  Result := (FStart = AOther.GetStart) and (FEnd = AOther.GetEnd);
 end;
 
 function TInterval.Equals(AOther: TObject): Boolean;
@@ -271,7 +268,7 @@ begin
   try
     for LItl in ANewOverlaps do
     begin
-      if not LItl.Equal(AItl) then
+      if not LItl.Equals(AItl) then
         AOverlaps.Add(LItl);
     end;
   finally
@@ -380,13 +377,11 @@ end;
 
 procedure TIntervalTree.RemoveOverlaps(var AItls: TList<TInterval>);
 var
-  LCompare: IComparer<TInterval>;
   LRemoveItls: TList<TInterval>;
   LItl: TInterval;
 begin
   // ≈≈–Ú£¨∞¥’’œ»¥Û–°∫Û◊Û∂Àµ„µƒÀ≥–Ú
-  LCompare := TComparer<TInterval>.Construct(IntervalComparerBySize);
-  AItls.Sort(LCompare);
+  AItls.Sort(U_CompareSize);
 
   LRemoveItls := TList<TInterval>.Create;
   try
@@ -410,8 +405,7 @@ begin
   end;
 
   // ≈≈–Ú£¨∞¥’’◊Û∂ÀÀ≥–Ú
-  LCompare := TComparer<TInterval>.Construct(IntervalComparerByPos);
-  AItls.Sort(LCompare);
+  AItls.Sort(U_ComparePos);
 end;
 
 { TToken }
@@ -454,5 +448,13 @@ function TFragmentToken.IsMatch: Boolean;
 begin
   Result := False;
 end;
+
+initialization
+  U_CompareSize := TComparer<TInterval>.Construct(IntervalComparerBySize);
+  U_ComparePos := TComparer<TInterval>.Construct(IntervalComparerByPos);
+
+finalization
+  U_CompareSize := nil;
+  U_ComparePos := nil;
 
 end.

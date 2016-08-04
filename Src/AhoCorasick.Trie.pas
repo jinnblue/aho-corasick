@@ -25,11 +25,11 @@ type
   private
     FDepth: Integer;    // 模式串的长度,也是该状态的深度
     FSuccNum: Integer;
-    FFailure: TState; // 失效函数,如果无匹配,则跳转到此状态
-    FEmits: TEmits;   // 只要该状态可达,则记录模式串
+    FSuccess: TSuccess; // 转向函数表
+    FFailure: TState;   // 失效函数,如果无匹配,则跳转到此状态
+    FEmits: TEmits;     // 只要该状态可达,则记录模式串
   public
     Idx: Integer;
-    Success: TSuccess; // 转向函数表
     constructor Create(const ADepth: Integer);
     destructor Destroy; override;
     function AddEmit(const AKeyword: string): TEmit; overload;
@@ -37,7 +37,9 @@ type
     function GotoLeaf(const AChar: Char): TState; // 转向函数(基于Success转移)
     function AddLeaf(const AChar: Char): TState;  // 添加一个状态到Success函数
     function IsWordHead: Boolean; inline;         // 是否为词头
+    procedure QuickSort(const aCompare: IComparer<PSuccessNode>);
 
+    property Success: TSuccess read FSuccess;
     property Failure: TState read FFailure write FFailure;
     property Depth: Integer read FDepth;
     property Emits: TEmits read FEmits; // 获取该节点代表的模式串(们)
@@ -89,7 +91,7 @@ type
     property RootState: TState read FRootState;
   end;
 
-function SuccessNodeCompareKey(const ALeft, ARight: PSuccessNode): Integer;
+function SuccessNodeCompareOrd(const ALeft, ARight: PSuccessNode): Integer;
 
 implementation
 
@@ -97,7 +99,7 @@ uses
   System.SysUtils, System.StrUtils, System.Character;
 
 var
-  U_Compare: IComparer<PSuccessNode>;
+  U_CompareOrd: IComparer<PSuccessNode>;
 
 function IsSkipChar(var AChar: Char; const aCaseInsensitive: Boolean): Boolean;
 begin
@@ -108,7 +110,7 @@ begin
     AChar := AChar.ToUpper;
 end;
 
-function SuccessNodeCompareKey(const ALeft, ARight: PSuccessNode): Integer;
+function SuccessNodeCompareOrd(const ALeft, ARight: PSuccessNode): Integer;
 begin
   Result := Word(ALeft^.Key) - Word(ARight^.Key);
 end;
@@ -129,12 +131,12 @@ destructor TState.Destroy;
 var
   LP: PSuccessNode;
 begin
-  for LP in Success do
+  for LP in FSuccess do
   begin
     LP.State.Free;
     Dispose(LP);
   end;
-  SetLength(Success, 0);
+  SetLength(FSuccess, 0);
   SetLength(FEmits, 0);
   inherited;
 end;
@@ -170,10 +172,10 @@ begin
     LP^.Key := AChar;
     LP^.State := Result;
     Inc(FSuccNum);
-    SetLength(Success, FSuccNum);
-    Success[FSuccNum - 1] := LP;
+    SetLength(FSuccess, FSuccNum);
+    FSuccess[FSuccNum - 1] := LP;
 
-    TArray.Sort<PSuccessNode>(Success, U_Compare);
+    QuickSort(U_CompareOrd);
   end;
 end;
 
@@ -190,13 +192,13 @@ begin
   while L <= R do
   begin
     C := (L + R) shr 1;
-    if Success[C]^.Key < AChar then
+    if FSuccess[C]^.Key < AChar then
       L := C + 1
     else
     begin
       R := C - 1;
-      if Success[C]^.Key = AChar then
-        Result := Success[C]^.State;
+      if FSuccess[C]^.Key = AChar then
+        Result := FSuccess[C]^.State;
     end;
   end;
 end;
@@ -204,6 +206,11 @@ end;
 function TState.IsWordHead: Boolean;
 begin
   Result := (FDepth = 1);
+end;
+
+procedure TState.QuickSort(const aCompare: IComparer<PSuccessNode>);
+begin
+  TArray.Sort<PSuccessNode>(FSuccess, aCompare);
 end;
 
 { TTrie }
@@ -303,7 +310,7 @@ begin
   LCurr := FRootState;
   for LChar in LKey do
   begin
-    if LChar.IsPunctuation then
+    if not LChar.IsLetterOrDigit then
       Continue;
 
     LCurr := LCurr.AddLeaf(LChar);
@@ -386,7 +393,7 @@ begin
 
   LLines := TStringList.Create;
   try
-    LLines.LoadFromFile(aFileName);
+    LLines.LoadFromFile(aFileName, TEncoding.UTF8);
     for LKey in LLines do
     begin
       AddKeyword(Trim(LKey));
@@ -479,7 +486,7 @@ begin
   for LChar in LText do
   begin
     Inc(I);
-    if LChar.IsPunctuation then
+    if not LChar.IsLetterOrDigit then
       Continue;
 
     LCurr := GotoNext(LCurr, LChar);
@@ -551,7 +558,7 @@ begin
   for I := 1 to Length(aText) do
   begin
     LChar := aText[I];
-    if LChar.IsPunctuation then
+    if not LChar.IsLetterOrDigit then
       Continue;
 
     if FCaseInsensitive then
@@ -587,7 +594,9 @@ begin
 end;
 
 initialization
+  U_CompareOrd := TComparer<PSuccessNode>.Construct(SuccessNodeCompareOrd);
 
-U_Compare := TComparer<PSuccessNode>.Construct(SuccessNodeCompareKey);
+finalization
+  U_CompareOrd := nil;
 
 end.
