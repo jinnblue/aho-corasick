@@ -2,7 +2,7 @@
 Aho-Corasick的Delphi实现，支持Unicode，加入双数组模式
 
 # 关于
-fork自https://github.com/hankcs/aho-corasick。  
+fork自https://github.com/hankcs/aho-corasick  
 我重新用Delphi做了实现，并自己实现了一个AC自动机与双数组模式结合的脏词过滤。支持Unicode。
 
 # 用法
