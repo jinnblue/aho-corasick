@@ -82,7 +82,7 @@ type
     procedure OnlyWholeWords;
 
     procedure AddKeyword(const aKey: string);
-    function Tokenize(const aText: string; var AParseList: TList<TEmit>): TList<TToken>;
+    function Tokenize(const aText: string; out ParseResults: TList<TEmit>): TList<TToken>;
     function ParseText(const aText: string): TList<TEmit>; // 模式匹配,返回值由自身释放
     function Filter(aText: string): string;
     function HasBlackWord(const aText: string): Boolean;
@@ -459,7 +459,17 @@ begin
   Result := TMatchToken.Create(MidStr(aText, aEmit.GetStart, aEmit.Size), aEmit);
 end;
 
-function TTrie.Tokenize(const aText: string; var AParseList: TList<TEmit>): TList<TToken>;
+/// <summary>
+/// Tokenize a text into TToken objects.
+/// Each token may reference a TEmit from the returned ParseResults list.
+/// </summary>
+/// <param name="aText">The input text to tokenize.</param>
+/// <param name="out ParseResults">
+///   On output, returns a list of TEmit representing the parsed matches.
+///   **Caller is responsible for freeing this list and all contained TEmit objects.**
+/// </param>
+/// <returns>A list of TToken objects for the text. Caller owns the tokens and must free them.</returns>
+function TTrie.Tokenize(const aText: string; out ParseResults: TList<TEmit>): TList<TToken>;
 var
   Tokens: TList<TToken>;
   LLastCollectedPos: Integer;
@@ -467,12 +477,17 @@ var
 begin
   Tokens := TList<TToken>.Create;
 
-  if AParseList <> nil then
-    AParseList.Free;
-  AParseList := ParseText(aText);
+  // Free previous parse list if assigned (just in case)
+  if Assigned(ParseResults) then
+    ParseResults.Free;
+
+  // Perform AC parsing to get emits
+  ParseResults := ParseText(aText);
   LLastCollectedPos := 1;
 
-  for LEmit in AParseList do begin
+  // Convert emits to tokens
+  for LEmit in ParseResults do
+  begin
     if LEmit.GetStart - LLastCollectedPos > 0 then
       Tokens.Add(CreateFragment(LEmit, aText, LLastCollectedPos));
 
@@ -481,6 +496,7 @@ begin
     LLastCollectedPos := LEmit.GetEnd + 1;
   end;
 
+  // Add any remaining fragment after the last match
   if Length(aText) - LLastCollectedPos > 0 then
     Tokens.Add(CreateFragment(nil, aText, LLastCollectedPos));
 
