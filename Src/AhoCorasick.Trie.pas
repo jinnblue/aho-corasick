@@ -55,8 +55,8 @@ type
     FFileName: string;         // 字典词库
     FRootState: TState;        // 根节点
     FEmits: TList<TEmit>;      // 匹配,单独状态节点可能重复,因此保存在列表中一起释放
-    FParses: TList<TEmit>;     // 匹配结果(自释放)
-    FTokens: TList<TToken>;    // 分词结果(自释放)
+    // FParses: TList<TEmit>;     // 匹配结果(自释放)
+    // FTokens: TList<TToken>; // 分词结果(自释放)
     FItlTree: TIntervalTree;   //
     FFailuresCreated: Boolean; // 是否建立了failure表
     FCaseInsensitive: Boolean; // 是否忽略大小写
@@ -65,12 +65,12 @@ type
 
     function CreateFragment(aEmit: TEmit; aText: string; aLastCollectedPos: Integer): TToken;
     function CreateMatch(aEmit: TEmit; aText: string): TToken;
-    procedure RemovePartialMatches(aSearch: string);
+    procedure RemovePartialMatches(aSearch: string; const AParses: TList<TEmit>);
     procedure CreateFailures;
     procedure CheckFailuresCreated;
-    procedure ClearParseResult;
-    procedure CLearTokenResult;
-    procedure StoreEmits(aPos: Integer; aCurrent: TState);
+    //    procedure ClearParseResult;
+    //    procedure CLearTokenResult;
+    procedure StoreEmits(aPos: Integer; aCurrent: TState; const AParses: TList<TEmit>);
     class function NextState(aCurrent: TState; const AChar: Char): TState;
     class function GotoNext(aCurrent: TState; const AChar: Char): TState;
   public
@@ -82,7 +82,7 @@ type
     procedure OnlyWholeWords;
 
     procedure AddKeyword(const aKey: string);
-    function Tokenize(const aText: string): TList<TToken>;
+    function Tokenize(const aText: string; out ParseResults: TList<TEmit>): TList<TToken>;
     function ParseText(const aText: string): TList<TEmit>; // 模式匹配,返回值由自身释放
     function Filter(aText: string): string;
     function HasBlackWord(const aText: string): Boolean;
@@ -241,8 +241,8 @@ begin
   FFailuresCreated := False;
 
   FEmits := TList<TEmit>.Create;
-  FParses := TList<TEmit>.Create;
-  FTokens := TList<TToken>.Create;
+  //  FParses := TList<TEmit>.Create;
+  //  FTokens := TList<TToken>.Create;
 end;
 
 destructor TTrie.Destroy;
@@ -258,41 +258,44 @@ begin
   end;
   FEmits.Free;
 
-  ClearParseResult;
-  FParses.Free;
+  //  ClearParseResult;
+  //  FParses.Free;
 
-  CLearTokenResult;
-  FTokens.Free;
+  //  CLearTokenResult;
+  //  FTokens.Free;
 
   inherited;
 end;
 
-procedure TTrie.ClearParseResult;
-var
-  I: Integer;
-begin
-  if FAllowOverlaps then
-  begin
-    for I := 0 to FParses.Count - 1 do
-      FParses[I].Free;
-  end
-  else
-  begin
-    if Assigned(FItlTree) then
-      FItlTree.Free;
-  end;
-  FParses.Clear;
-end;
+// procedure TTrie.ClearParseResult;
+// var
+//  I: Integer;
+// begin
+//  TMonitor.Enter(FParses);
+//  try
+//    if FAllowOverlaps then begin
+//      for I := 0 to FParses.Count - 1 do
+//        FParses[I].Free;
+//    end
+//    else begin
+//      if Assigned(FItlTree) then
+//        FItlTree.Free;
+//    end;
+//    FParses.Clear;
+//  finally
+//    TMonitor.Exit(FParses);
+//  end;
+// end;
 
-procedure TTrie.CLearTokenResult;
-var
-  I: Integer;
-begin
-  for I := 0 to FTokens.Count - 1 do
-    FTokens[I].Free;
-
-  FTokens.Clear;
-end;
+// procedure TTrie.CLearTokenResult;
+// var
+//  I: Integer;
+// begin
+//  for I := 0 to FTokens.Count - 1 do
+//    FTokens[I].Free;
+//
+//  FTokens.Clear;
+// end;
 
 procedure TTrie.AddKeyword(const aKey: string);
 var
@@ -312,8 +315,12 @@ begin
   begin
     if not LChar.IsLetterOrDigit then
       Continue;
-
-    LCurr := LCurr.AddLeaf(LChar);
+    TMonitor.Enter(Self);
+    try
+      LCurr := LCurr.AddLeaf(LChar);
+    finally
+      TMonitor.Exit(Self);
+    end;
   end;
   LEmit := LCurr.AddEmit(aKey);
   FEmits.Add(LEmit);
@@ -322,8 +329,15 @@ end;
 
 procedure TTrie.CheckFailuresCreated;
 begin
-  if not FFailuresCreated then
-    CreateFailures;
+  if not FFailuresCreated then begin
+    TMonitor.Enter(Self);
+    try
+      if not FFailuresCreated then
+        CreateFailures;
+    finally
+      TMonitor.Exit(Self);
+    end;
+  end;
 end;
 
 procedure TTrie.CreateFailures;
@@ -371,14 +385,13 @@ begin
   end;
 end;
 
-procedure TTrie.StoreEmits(aPos: Integer; aCurrent: TState);
+procedure TTrie.StoreEmits(aPos: Integer; aCurrent: TState; const AParses: TList<TEmit>);
 var
   LNew, LOld: TEmit;
 begin
-  for LOld in aCurrent.Emits do
-  begin
+  for LOld in aCurrent.Emits do begin
     LNew := TEmit.Create(aPos - LOld.Size + 1, aPos, LOld.Keyword);
-    FParses.Add(LNew);
+    AParses.Add(LNew);
   end;
 end;
 
@@ -446,26 +459,48 @@ begin
   Result := TMatchToken.Create(MidStr(aText, aEmit.GetStart, aEmit.Size), aEmit);
 end;
 
-function TTrie.Tokenize(const aText: string): TList<TToken>;
+/// <summary>
+/// Tokenize a text into TToken objects.
+/// Each token may reference a TEmit from the returned ParseResults list.
+/// </summary>
+/// <param name="aText">The input text to tokenize.</param>
+/// <param name="out ParseResults">
+///   On output, returns a list of TEmit representing the parsed matches.
+///   **Caller is responsible for freeing this list and all contained TEmit objects.**
+/// </param>
+/// <returns>A list of TToken objects for the text. Caller owns the tokens and must free them.</returns>
+function TTrie.Tokenize(const aText: string; out ParseResults: TList<TEmit>): TList<TToken>;
 var
+  Tokens: TList<TToken>;
   LLastCollectedPos: Integer;
   LEmit: TEmit;
 begin
-  ClearParseResult;
-  ParseText(aText);
+  Tokens := TList<TToken>.Create;
 
+  // Free previous parse list if assigned (just in case)
+  if Assigned(ParseResults) then
+    ParseResults.Free;
+
+  // Perform AC parsing to get emits
+  ParseResults := ParseText(aText);
   LLastCollectedPos := 1;
-  for LEmit in FParses do
+
+  // Convert emits to tokens
+  for LEmit in ParseResults do
   begin
     if LEmit.GetStart - LLastCollectedPos > 0 then
-      FTokens.Add(CreateFragment(LEmit, aText, LLastCollectedPos));
-    FTokens.Add(CreateMatch(LEmit, aText));
+      Tokens.Add(CreateFragment(LEmit, aText, LLastCollectedPos));
+
+    Tokens.Add(CreateMatch(LEmit, aText));
+
     LLastCollectedPos := LEmit.GetEnd + 1;
   end;
 
+  // Add any remaining fragment after the last match
   if Length(aText) - LLastCollectedPos > 0 then
-    FTokens.Add(CreateFragment(nil, aText, LLastCollectedPos));
-  Result := FTokens;
+    Tokens.Add(CreateFragment(nil, aText, LLastCollectedPos));
+
+  Result := Tokens;
 end;
 
 function TTrie.ParseText(const aText: string): TList<TEmit>;
@@ -474,35 +509,47 @@ var
   LText: string;
   LChar: Char;
   LCurr: TState;
+  LocalParses: TList<TEmit>;
+  LocalItlTree: TIntervalTree;
 begin
   CheckFailuresCreated;
-  ClearParseResult;
 
-  if FCaseInsensitive then
-    LText := aText.ToUpper;
+  LocalParses := TList<TEmit>.Create;
+  try
+    if FCaseInsensitive then
+      LText := aText.ToUpper
+    else
+      LText := aText;
 
-  I := 0;
-  LCurr := FRootState;
-  for LChar in LText do
-  begin
-    Inc(I);
-    if not LChar.IsLetterOrDigit then
-      Continue;
+    I := 0;
+    LCurr := FRootState;
 
-    LCurr := GotoNext(LCurr, LChar);
-    StoreEmits(I, LCurr);
+    for LChar in LText do begin
+      Inc(I);
+      if not LChar.IsLetterOrDigit then
+        Continue;
+
+      LCurr := GotoNext(LCurr, LChar);
+      StoreEmits(I, LCurr, LocalParses); // ← pass list in
+    end;
+
+    if FOnleyWholeWord then
+      RemovePartialMatches(LText, LocalParses);
+
+    if not FAllowOverlaps then begin
+      LocalItlTree := TIntervalTree.Create(TList<TInterval>(LocalParses));
+      try
+        LocalItlTree.RemoveOverlaps(TList<TInterval>(LocalParses));
+      finally
+        LocalItlTree.Free;
+      end;
+    end;
+
+    Result := LocalParses;
+    LocalParses := nil; // transfer ownership
+  finally
+    LocalParses.Free;
   end;
-
-  if FOnleyWholeWord then
-    RemovePartialMatches(LText);
-
-  if not FAllowOverlaps then
-  begin
-    FItlTree := TIntervalTree.Create(TList<TInterval>(FParses));
-    FItlTree.RemoveOverlaps(TList<TInterval>(FParses));
-  end;
-
-  Result := FParses;
 end;
 
 function TTrie.Filter(aText: string): string;
@@ -572,23 +619,22 @@ begin
   end;
 end;
 
-procedure TTrie.RemovePartialMatches(aSearch: string);
+procedure TTrie.RemovePartialMatches(aSearch: string; const AParses: TList<TEmit>);
 var
   LSize: Integer;
   I: Integer;
   LEmit: TEmit;
 begin
   LSize := Length(aSearch);
-  for I := FParses.Count - 1 downto 0 do
-  begin
-    LEmit := FParses[I];
-    if ((LEmit.GetStart = 1) or (not Char(aSearch[LEmit.GetStart - 1]).IsLetterOrDigit)) and
-      ((LEmit.GetEnd = LSize) or (not Char(aSearch[LEmit.GetEnd + 1]).IsLetterOrDigit)) then
+  for I := AParses.Count - 1 downto 0 do begin
+    LEmit := AParses[I];
+    if ((LEmit.GetStart = 1) or (not Char(aSearch[LEmit.GetStart - 1]).IsLetterOrDigit))
+        and ((LEmit.GetEnd = LSize) or (not Char(aSearch[LEmit.GetEnd + 1]).IsLetterOrDigit)) then
     begin
       Continue;
     end;
 
-    FParses.Remove(LEmit);
+    AParses.Remove(LEmit);
     LEmit.Free;
   end;
 end;
